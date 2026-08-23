@@ -18,12 +18,24 @@ struct ins {
     __u32 tokens;
 };
 
+struct config {
+    __u32 rate_pps;
+    __u32 burst_cap;
+};
+
 struct {
     __uint(type, BPF_MAP_TYPE_LRU_HASH);
     __uint(max_entries, 65536);
     __type(key, __u32);      // source IP
     __type(value, struct ins);     // stored TTL,etc
 } ddos SEC(".maps");
+
+struct {
+    __uint(type, BPF_MAP_TYPE_ARRAY);
+    __uint(max_entries, 1);
+    __type(key, __u32);
+    __type(value, struct config);
+} cfg SEC(".maps");
 
 static __always_inline __u32 compute_syn_cookie(__u32 saddr, __u16 sport, __u32 daddr, __u16 dport, __u32 secret)
 {
@@ -104,11 +116,11 @@ int ttl_prog(struct xdp_md *ctx)
     __u8  proto  = ip->protocol;
 
 if (proto == IPPROTO_TCP) {
-        if (!tcp->syn && !tcp->ack){
+    if (!tcp->syn && !tcp->ack){
             return XDP_PASS;
-        }
+    }
 
-       if (tcp->syn && !tcp->ack) {
+    if (tcp->syn && !tcp->ack) {
         __u32 cookie = compute_syn_cookie(ip->saddr, tcp->source, ip->daddr, tcp->dest, SYN_SECRET);
         __u32 incoming_seq = tcp->seq;
 
@@ -148,16 +160,15 @@ if (proto == IPPROTO_TCP) {
                     return XDP_DROP;
                 }
                 return XDP_PASS;
-            }
-
-    // SYN+ACK (both flags set) falls through here -- simultaneous-open,
-    // not handled by this synproxy. Drop explicitly rather than letting
-    // it fall out of the TCP block and hit the generic TTL-anomaly path.
+      }
     if (tcp->syn && tcp->ack) {
         return XDP_DROP;
-    }
-     }
+      }
+}
+
 if (ip->protocol == IPPROTO_UDP){
+   
+
     return XDP_PASS;
 }
 
