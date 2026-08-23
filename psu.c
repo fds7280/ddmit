@@ -4,14 +4,18 @@
 #include <linux/ip.h>
 #include <bpf/bpf_helpers.h>
 #include <bpf/bpf_endian.h>
+#include <linux/ethtool.h>
+#include <linux/sockios.h>   // for SIOCETHTOOL
+#include <sys/ioctl.h>       
+#include <net/if.h>          // for struct ifreq
 
 #define SYN_SECRET 0x7F3A9C42
 
 //maps
-struct ins{
-    __u8 ttl;
-    __u64 syn_ts;
-
+struct ins {
+    __u8  ttl;
+    __u64 last_refill_ns;
+    __u32 tokens;
 };
 
 struct {
@@ -139,7 +143,7 @@ if (proto == IPPROTO_TCP) {
        }
 
     if (tcp->ack && !tcp->syn) {
-            __u32 recomputed = compute_syn_cookie(ip->saddr, tcp->source, ip->daddr, tcp->dest, SYN_SECRET);
+          __u32 recomputed = compute_syn_cookie(ip->saddr, tcp->source, ip->daddr, tcp->dest, SYN_SECRET);
                 if (bpf_ntohl(tcp->ack_seq) != recomputed + 1) {
                     return XDP_DROP;
                 }
