@@ -2,12 +2,9 @@
 #include <linux/in.h>
 #include <linux/if_ether.h>
 #include <linux/ip.h>
+#include <linux/tcp.h>
 #include <bpf/bpf_helpers.h>
 #include <bpf/bpf_endian.h>
-#include <linux/ethtool.h>
-#include <linux/sockios.h>   // for SIOCETHTOOL
-#include <sys/ioctl.h>       
-#include <net/if.h>          // for struct ifreq
 
 #define SYN_SECRET 0x7F3A9C42
 
@@ -167,9 +164,24 @@ if (proto == IPPROTO_TCP) {
 }
 
 if (ip->protocol == IPPROTO_UDP){
-   
+    __u32 cfg_key = 0;
+    struct config *thing = bpf_map_lookup_elem(&cfg, &cfg_key);
+    if(!thing){
+       return XDP_PASS;
+    }
 
-    return XDP_PASS;
+    struct ins *t2 = bpf_map_lookup_elem(&ddos, &src_ip);
+    struct ins *udp_entry = bpf_map_lookup_elem(&ddos, &src_ip);
+    if (!udp_entry) {
+        __u64 now = bpf_ktime_get_ns();
+        struct ins new_entry = {
+            .ttl           = ttl,
+            .tokens        = thing->burst_cap - 1,
+            .last_refill_ns = now,
+        };
+        bpf_map_update_elem(&ddos, &src_ip, &new_entry, BPF_ANY);
+        return XDP_PASS;
+    }
 }
 
 if (ip->protocol == IPPROTO_ICMP){
@@ -177,17 +189,14 @@ if (ip->protocol == IPPROTO_ICMP){
 }
 
 struct ins *ips = bpf_map_lookup_elem(&ddos, &src_ip);
-
     if (!ips) {
-        struct ins new_entry = { .ttl = ttl, .syn_ts = 0 };
+        struct ins new_entry = { .ttl = ttl, .tokens = 0, .last_refill_ns = 0 };
         bpf_map_update_elem(&ddos, &src_ip, &new_entry, BPF_ANY);
         return XDP_PASS;
     }
-
     if (ips->ttl != ttl) {
         return XDP_DROP;
     }
-
     return XDP_PASS;
 }
 
