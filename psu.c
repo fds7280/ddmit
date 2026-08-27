@@ -166,11 +166,19 @@ if (proto == IPPROTO_TCP) {
        }
 
     if (tcp->ack && !tcp->syn) {
-          __u32 recomputed = compute_syn_cookie(ip->saddr, tcp->source, ip->daddr, tcp->dest, SYN_SECRET);
+         struct flow_key ens = { .saddr = saddr, .daddr = daddr, .sport = sport, .dport = dport};
+         __u8 *metastais = bpf_map_lookup_elem(&established, &ens);
+         if (metastais)
+                return XDP_PASS; 
+
+         __u32 recomputed = compute_syn_cookie(ip->saddr, tcp->source, ip->daddr, tcp->dest, SYN_SECRET);
                 if (bpf_ntohl(tcp->ack_seq) != recomputed + 1) {
                     return XDP_DROP;
                 }
-                return XDP_PASS;
+          __u8 cancer = 1;
+          bpf_map_update_elem(&established, &ens, &cancer, BPF_ANY);
+          
+          return XDP_PASS;
       }
     if (tcp->syn && tcp->ack) {
         return XDP_DROP;
@@ -189,9 +197,9 @@ if (ip->protocol == IPPROTO_UDP){
     if (!udp_entry) {
         __u64 now = bpf_ktime_get_ns();
         struct ins new_entry = {
-            .ttl           = ttl,
-            .tokens        = thing->burst_cap - 1,
-            .last_refill_ns = now,
+            .ttl             = ttl,
+            .tokens          = thing->burst_cap - 1,
+            .last_refill_ns  = now,
         };
         bpf_map_update_elem(&ddos, &src_ip, &new_entry, BPF_ANY);
         return XDP_PASS;
